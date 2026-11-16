@@ -1,15 +1,19 @@
 # RTKLIB for WebAssembly
 
-Builds two RTKLIB console tools as WebAssembly ES modules, without changing
-any RTKLIB source file:
+Builds the five RTKLIB console apps as WebAssembly ES modules, without
+changing any RTKLIB source file:
 
-| Module | Tool | Use |
+| Module | Kind | Use |
 |---|---|---|
-| `rnx2rtkp.mjs` / `.wasm` | `rnx2rtkp` | Post-processing: PPK, static, single, PPP |
-| `convbin.mjs` / `.wasm` | `convbin` | Raw logs (UBX, RTCM 2/3, NovAtel, Septentrio, ...) to RINEX |
+| `rnx2rtkp` | batch | Post-processing: PPK, static, single, PPP |
+| `convbin` | batch | Raw logs (UBX, RTCM 2/3, NovAtel, Septentrio, ...) to RINEX |
+| `pos2kml` | batch | Solution file (.pos) to KML, GPX or CSV |
+| `str2str` | server | Stream relay and format conversion (file, TCP, NTRIP) |
+| `rtkrcv` | server | Real-time positioning (RTK/PPP) from input streams |
 
 They run in browsers, web workers and Node. Files are passed through an
-in-memory file system, so nothing is uploaded anywhere.
+in-memory file system, so nothing is uploaded anywhere. The Qt and Windows
+GUI apps (rtkpost, rtkplot, rtknavi, ...) are not built.
 
 ## Build
 
@@ -48,23 +52,51 @@ r.files['out.pos'];     // Uint8Array; also out_events.pos when the log has even
 r.stdout; r.stderr;
 ```
 
+The servers return a handle instead of a result, because they run until stopped:
+
+```js
+import { str2str } from './dist/rtklib.mjs';
+
+const s = await str2str({
+  args: ['-in', 'file://log.ubx', '-out', 'file://copy.ubx'],
+  files: { 'log.ubx': bytes },
+});
+s.readFiles();              // outputs so far
+const r = await s.stop();   // sends SIGINT; same result shape as above
+```
+
 Notes:
 
 - Each call creates a fresh module instance, because RTKLIB keeps global
-  state between runs. Do not reuse an instance for a second `callMain`.
-- The call blocks the thread it runs on. In a browser, call it from a web
-  worker so the page stays responsive.
+  state between runs.
+- Batch tools block the thread they run on. In a browser, call them from a
+  web worker so the page stays responsive.
+- `str2str` and `rtkrcv` use threads (`SharedArrayBuffer`). In a browser the
+  page must be cross-origin isolated (`Cross-Origin-Opener-Policy: same-origin`
+  and `Cross-Origin-Embedder-Policy: require-corp`). Start `rtkrcv` with `-nc`
+  (no console).
+- Networking in the servers is limited by the platform: there are no serial
+  ports, and in a browser TCP/NTRIP streams only work as outgoing WebSocket
+  connections through a proxy such as websockify. In Node, sockets need the
+  `ws` package. Only file streams are covered by the test.
 - Memory starts at 64 MB and grows on demand up to 4 GB. Inputs and outputs
   live in memory, so very large logs need that much RAM.
 - Compile-time options match the upstream gcc makefiles
   (`-DENAGLO -DENAQZS -DENAGAL -DENACMP -DENAIRN -DNFREQ=4 -DNEXOBS=3 -DTRACE`).
   Change `DEFS` in `build.sh` to alter them.
-- `rtkrcv`, `str2str` and the other real-time tools are not built: they need
-  sockets, serial ports and threads.
 
 ## Keeping up with upstream
 
-`main` tracks [rtklibexplorer/RTKLIB](https://github.com/rtklibexplorer/RTKLIB)
-(the demo5 branch of RTKLIB). The WebAssembly files live only in `wasm/` and
-`.github/workflows/wasm.yml` on the `wasm` branch, so merging `main` into
-`wasm` should not conflict.
+`main` is kept identical to
+[rtklibexplorer/RTKLIB](https://github.com/rtklibexplorer/RTKLIB) (the demo5
+branch of RTKLIB). The WebAssembly files live only in `wasm/` and
+`.github/workflows/` on the `wasm` branch, so merging never conflicts unless
+upstream adds files with the same names.
+
+- Automatic: the `sync-upstream` workflow runs every Monday (or on demand from
+  the Actions tab). It fast-forwards `main`, merges it into `wasm`, rebuilds
+  and runs the test.
+- Manual: `bash wasm/sync-upstream.sh` does the same from a local clone; the
+  push to `wasm` triggers the build.
+
+If upstream adds or removes source files, update the lists in `build.sh`.
