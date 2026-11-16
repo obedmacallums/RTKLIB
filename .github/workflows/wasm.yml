@@ -1,0 +1,28 @@
+name: wasm
+
+on:
+  push:
+    branches: [wasm]
+  pull_request:
+    branches: [wasm]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.74
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build
+        run: bash wasm/build.sh
+      - name: Smoke test
+        run: node wasm/test/smoke.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rtklib-wasm
+          path: wasm/dist
