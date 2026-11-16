@@ -1,0 +1,44 @@
+name: sync-upstream
+
+# Weekly: fast-forward main to upstream RTKLIB, merge it into wasm, then
+# rebuild and test. Scheduled runs need wasm to be the fork's default branch.
+on:
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    outputs:
+      updated: ${{ steps.sync.outputs.updated }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wasm
+          fetch-depth: 0
+      - id: sync
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/rtklibexplorer/RTKLIB.git
+          git fetch upstream main
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "Already up to date."
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git push origin upstream/main:refs/heads/main
+          git merge --no-edit upstream/main
+          git push origin HEAD:wasm
+          echo "updated=true" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: sync
+    if: needs.sync.outputs.updated == 'true'
+    uses: ./.github/workflows/wasm.yml
+    with:
+      ref: wasm
